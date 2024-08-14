@@ -6,10 +6,21 @@ import java.net.URLDecoder
 import java.nio.file.Paths
 import java.util.jar.JarFile
 
+/**
+ * 内置Processor加载器,仅用于加载内置Processor,无法加载外置Processor
+ *
+ * 由chatgpt-4o生成
+ */
 object InternalProcessorLoader {
 
     private var _internalProcessor: List<Processor>? = null
 
+    /**
+     * 读取"tea.ulong.event.processor"包下的所有processor并生成代理对象.
+     *
+     * 内部使用缓存机制,无法立刻反应变化
+     * @return processor代理对象列表
+     */
     fun getInternalProcessorList(): List<Processor> {
         if (_internalProcessor != null) return _internalProcessor!!
 

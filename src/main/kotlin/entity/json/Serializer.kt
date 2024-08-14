@@ -10,6 +10,9 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 
+/**
+ * [LocalDateTime]类的序列化器,由chatgpt-4o生成
+ */
 object LocalDateTimeSerializer : KSerializer<LocalDateTime> {
     private val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 

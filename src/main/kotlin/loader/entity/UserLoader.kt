@@ -7,6 +7,9 @@ import tea.ulong.entity.utils.json
 import java.io.File
 import java.time.LocalDateTime
 
+/**
+ * User加载器
+ */
 object UserLoader {
 
     private val path = File(Config.USER_PATH)
@@ -17,6 +20,12 @@ object UserLoader {
         }
     }
 
+    /**
+     * 获取用户的配置文件,如果用户不存在会在[path]目录下生成新文件
+     *
+     * @param qq 目标用户的qq号
+     * @return 用户
+     */
     fun loader(qq: Long) : User {
         val qqFile = File(path,  "$qq.json")
         if (!qqFile.exists()){

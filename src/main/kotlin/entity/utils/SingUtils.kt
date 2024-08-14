@@ -6,6 +6,9 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.contextual
 import tea.ulong.entity.json.LocalDateTimeSerializer
 
+/**
+ * 请在项目中使用该对象来进行json的序列化与反序列化
+ */
 val json = Json {
     prettyPrint = true
     serializersModule = SerializersModule {
@@ -14,4 +17,7 @@ val json = Json {
     encodeDefaults = true
 }
 
+/**
+ * 空json object, 用于占位
+ */
 val emptyJsonObject = buildJsonObject {  }
