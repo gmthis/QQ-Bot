@@ -9,6 +9,9 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/bot-api" />
+            <option value="$PROJECT_DIR$/bot-core" />
+            <option value="$PROJECT_DIR$/bot-core-plugin" />
           </set>
         </option>
       </GradleProjectSettings>
