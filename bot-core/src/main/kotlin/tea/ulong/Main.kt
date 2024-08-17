@@ -4,8 +4,8 @@ import kotlinx.coroutines.runBlocking
 import net.mamoe.mirai.Bot
 import net.mamoe.mirai.event.events.MessageEvent
 import net.mamoe.mirai.message.data.content
-import tea.ulong.event.processor.Prefix
-import tea.ulong.event.processor.ProcessorFun
+import tea.ulong.entity.event.processor.Prefix
+import tea.ulong.entity.event.processor.ProcessorFun
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.loader.entity.ConfigLoader
 import tea.ulong.loader.event.processor.InternalProcessorLoader

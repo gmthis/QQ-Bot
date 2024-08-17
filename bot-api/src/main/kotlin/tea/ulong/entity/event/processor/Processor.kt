@@ -1,11 +1,16 @@
-package tea.ulong.event.processor
+package tea.ulong.entity.event.processor
 
 import net.mamoe.mirai.event.Event
 import net.mamoe.mirai.event.events.*
 import net.mamoe.mirai.message.data.MessageSource.Key.quote
 import tea.ulong.entity.event.processor.annotation.*
+import tea.ulong.entity.event.processor.annotation.LifecycleModel.*
+import tea.ulong.entity.exception.ProcessorBindException
+import tea.ulong.entity.exception.ProcessorConstructInstanceFailedException
+import tea.ulong.entity.exception.ProcessorNotHaveConstructorException
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.ext.User
+import tea.ulong.ext.fullName
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.KMutableProperty
@@ -46,21 +51,79 @@ class Processor(val clazz: KClass<*>) {
     val triggerMap: MutableMap<Prefix, MutableMap<String, MutableList<ProcessorFun>>> = mutableMapOf()
 
     /**
-     * 单例,如果某个函数使用单例模式,那么会使用该属性,目前未实现
+     * 被代理Processor的构造函数
      */
-    private val single: Any? by lazy { clazz.constructors.find { it.parameters.isEmpty() }?.call() }
+    val constructor = clazz.primaryConstructor ?:
+        clazz.constructors.find { it.findAnnotation<UseThis>() != null } ?:
+        clazz.constructors.find { it.parameters.isEmpty() } ?: ::createInstance
+
+    private fun createInstance(){
+        try {
+            clazz.createInstance()
+        }catch (e: IllegalArgumentException){
+            throw ProcessorNotHaveConstructorException("${clazz.fullName} 无法通过createInstance()函数构造实例")
+        }
+    }
+
+    val lifecycle = clazz.findAnnotation<Lifecycle>()?.cycle ?: Scope
 
     /**
-     * 执行函数的执行实例,根据不同的生命周期返回不同的对象,该api未来可能发生变动可能会被删除或者修改为函数
+     * 单例,如果某个函数使用单例模式,那么会使用该属性
      */
-    val executor: Any
-        get() {
-            val parameterlessConstructor = clazz.constructors.find { it.parameters.isEmpty() }
-            if (parameterlessConstructor != null){
-                return parameterlessConstructor.call()
+    private val single: Any? by lazy { getInstance() }
+
+    /**
+     * 成员绑定映射表
+     */
+    private val memberBindMap by lazy { mutableMapOf<Long, Any>() }
+
+    /**
+     * 群绑定映射表
+     */
+    private val groupBindMap by lazy { mutableMapOf<Long, Any>() }
+
+    /**
+     * 群内成员绑定映射表
+     */
+    private val inGroupMemberBindMap by lazy { mutableMapOf<Long, MutableMap<Long, Any>>() }
+
+    /**
+     * 获取执行函数的执行实例,根据不同的生命周期返回不同的对象,该api未来可能发生变动可能会被删除或者修改为函数
+     */
+    fun executor(event: MessageEvent): Any {
+        return when(lifecycle) {
+            Sing -> single
+
+            BindMember -> memberBindMap
+                .getOrPut(event.sender.id){ getInstance() }
+
+            GroupSing -> when (event) {
+                is GroupMessageEvent,
+                is GroupTempMessageEvent,
+                is GroupMessageSyncEvent,
+                is GroupTempMessageSyncEvent-> groupBindMap
+                    .getOrPut(event.subject.id){ getInstance() }
+
+                is FriendMessageEvent,
+                is MessageSyncEvent,
+                is OtherClientMessageEvent,
+                is StrangerMessageEvent -> memberBindMap
+                    .getOrPut(event.sender.id){ getInstance() }
+
+                else -> memberBindMap
+                    .getOrPut(event.sender.id){ getInstance() }
             }
-            return Any()
-        }
+
+            GroupBindMember -> if (event is GroupAwareMessageEvent) {
+                inGroupMemberBindMap
+                    .getOrPut(event.subject.id){ mutableMapOf() }
+                    .getOrPut(event.sender.id) { getInstance() }
+            } else throw ProcessorBindException("${clazz.fullName}的生命周期绑定异常,绑定为GroupBindMember," +
+                    "但传入的事件为UserMessage类型")
+
+            Scope -> getInstance()
+        } ?: throw ProcessorConstructInstanceFailedException("构造${clazz.fullName}的实例失败")
+    }
 
     init {
         // 获取所有标记为可触发的函数
@@ -101,39 +164,47 @@ class Processor(val clazz: KClass<*>) {
      */
     fun run(func: ProcessorFun, event: Event): Any? {
         var runFlag = false
-        // 判断事件是否符合条件
-        when(event){
-            is GroupMessageEvent -> {
-                if (func.respondEvent.contains(RespondEventModel.GroupMessageEvent)){
-                    runFlag = true
-                }
-            }
-            is FriendMessageEvent -> {
-                if (func.respondEvent.contains(RespondEventModel.FriendMessageEvent)){
-                    runFlag = true
-                }
-            }
-            else -> runFlag = false
-        }
         var result: Any? = null
-        // 仅符合条件时才会运行
-        if (runFlag){
-            val params = func.function.parameters
-            val paramMap = mutableMapOf<KParameter, Any>()
-            // 映射参数,目前支持获取event,未来会支持更多
-            for (param in params){
-                if (param.kind == KParameter.Kind.INSTANCE){
-                    paramMap[param] = executor
-                    continue
+        // 判断事件是否符合条件
+        if (event is MessageEvent){
+            when(event){
+                is GroupMessageEvent -> {
+                    if (func.respondEvent.contains(RespondEventModel.GroupMessageEvent)){
+                        runFlag = true
+                    }
                 }
-                if (event::class.createType().isSubtypeOf(param.type)){
-                    paramMap[param] = event
+                is FriendMessageEvent -> {
+                    if (func.respondEvent.contains(RespondEventModel.FriendMessageEvent)){
+                        runFlag = true
+                    }
                 }
+                else -> runFlag = false
             }
-            result = func.function.callBy(paramMap)
+            // 仅符合条件时才会运行
+            if (runFlag){
+                val params = func.function.parameters
+                val paramMap = mutableMapOf<KParameter, Any>()
+                // 映射参数,目前支持获取event,未来会支持更多
+                for (param in params){
+                    if (param.kind == KParameter.Kind.INSTANCE){
+                        paramMap[param] = executor(event)
+                        continue
+                    }
+                    if (event::class.createType().isSubtypeOf(param.type)){
+                        paramMap[param] = event
+                    }
+                }
+                result = func.function.callBy(paramMap)
+            }
         }
-
         return result
+    }
+
+    /**
+     * 获取被代理类的实例,目前没有实现依赖注入.
+     */
+    fun getInstance(): Any {
+        return constructor.call()
     }
 
 }

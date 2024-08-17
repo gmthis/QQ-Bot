@@ -12,6 +12,8 @@ build/
 *.iws
 *.iml
 *.ipr
+.idea/
+.kotlin/
 out/
 !**/src/main/**/out/
 !**/src/test/**/out/
