@@ -98,7 +98,7 @@ enum class AuthenticationModel {
 }
 
 /**
- * 标记Process的生命周期,暂未实现
+ * 标记Process的生命周期
  *
  * 另见:[LifecycleModel]
  * @param cycle 生命周期标记
@@ -114,9 +114,9 @@ annotation class Lifecycle(
  */
 enum class LifecycleModel {
     /**单例模式**/Sing,
-    /**成员绑定模式,所有被绑定的成员会获取到固定的单例,当不存在绑定的成员时销毁,注意这是跨群的**/BindMembers,
+    /**成员绑定模式,所有被绑定的成员会获取到固定的单例,当不存在绑定的成员时销毁,注意这是跨群的**/BindMember,
     /**每个群会获取到对应的单体实例,这个实例在程序重启前不会变化**/GroupSing,
-    /**群内成员绑定模式,与成员绑定模式相同,但不跨群**/GroupBindMembers,
+    /**群内成员绑定模式,与成员绑定模式相同,但不跨群**/GroupBindMember,
     /**每次请求均使用新实例**/Scope
 }
 

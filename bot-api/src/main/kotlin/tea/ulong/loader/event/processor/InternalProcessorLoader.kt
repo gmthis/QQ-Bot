@@ -1,6 +1,6 @@
 package tea.ulong.loader.event.processor
 
-import tea.ulong.event.processor.Processor
+import tea.ulong.entity.event.processor.Processor
 import java.io.File
 import java.net.URLDecoder
 import java.nio.file.Paths
