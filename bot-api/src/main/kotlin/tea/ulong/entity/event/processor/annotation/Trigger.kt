@@ -1,9 +1,13 @@
 package tea.ulong.entity.event.processor.annotation
 
+import net.mamoe.mirai.event.Event
+import net.mamoe.mirai.event.events.FriendMessageEvent
+import net.mamoe.mirai.event.events.GroupMessageEvent
 import tea.ulong.entity.event.UniversalLevel
 import tea.ulong.entity.event.processor.annotation.AuthenticationModel.*
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.ext.containsAll
+import kotlin.reflect.KClass
 
 /**
  * 在Processor中的函数中注明该函数通过哪些关键词触发
@@ -17,6 +21,7 @@ import tea.ulong.ext.containsAll
 @Retention(AnnotationRetention.RUNTIME)
 annotation class Trigger(
     vararg val triggers: String,
+    val front: String = "",
     val level: UniversalLevel = UniversalLevel.Ordinary,
     /**是否使用通用前缀,true为使用,false为不使用**/
     val isUsedUniversalPrefix: Boolean = true
@@ -103,7 +108,7 @@ enum class AuthenticationModel {
  * 另见:[LifecycleModel]
  * @param cycle 生命周期标记
  */
-@Target(AnnotationTarget.FUNCTION)
+@Target(AnnotationTarget.FUNCTION, AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class Lifecycle(
     val cycle: LifecycleModel = LifecycleModel.Scope
@@ -127,12 +132,12 @@ enum class LifecycleModel {
  * @param model: 支持的事件列表
  */
 annotation class RespondEvent(
-    vararg val model: RespondEventModel = [RespondEventModel.FriendMessageEvent, RespondEventModel.GroupMessageEvent]
+    vararg val model: RespondEventModel = [RespondEventModel.FriendMessage, RespondEventModel.GroupMessage]
 )
 
 /**
  * 这里只会列出支持的事件类型,如果未列出则代表暂不支持
  */
-enum class RespondEventModel{
-    FriendMessageEvent, GroupMessageEvent
+enum class RespondEventModel(val clazz: KClass<out Event>){
+    FriendMessage(FriendMessageEvent::class), GroupMessage(GroupMessageEvent::class)
 }

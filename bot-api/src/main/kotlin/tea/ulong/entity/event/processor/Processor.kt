@@ -1,12 +1,12 @@
 package tea.ulong.entity.event.processor
 
+import net.mamoe.mirai.contact.OtherClient
 import net.mamoe.mirai.event.Event
 import net.mamoe.mirai.event.events.*
 import net.mamoe.mirai.message.data.MessageSource.Key.quote
 import tea.ulong.entity.event.processor.annotation.*
 import tea.ulong.entity.event.processor.annotation.LifecycleModel.*
 import tea.ulong.entity.exception.ProcessorBindException
-import tea.ulong.entity.exception.ProcessorConstructInstanceFailedException
 import tea.ulong.entity.exception.ProcessorNotHaveConstructorException
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.ext.User
@@ -36,7 +36,7 @@ class Processor(val clazz: KClass<*>) {
          * 默认事件类型
          */
         var DefaultRespondEvent = listOf(
-            RespondEventModel.FriendMessageEvent, RespondEventModel.GroupMessageEvent
+            RespondEventModel.FriendMessage, RespondEventModel.GroupMessage
         )
     }
 
@@ -46,26 +46,13 @@ class Processor(val clazz: KClass<*>) {
     val triggerFun: List<ProcessorFun>
 
     /**
-     * 前缀.触发词与可触发函数的映射关系,未来可能调整为entity而不是使用map一把梭
-     */
-    val triggerMap: MutableMap<Prefix, MutableMap<String, MutableList<ProcessorFun>>> = mutableMapOf()
-
-    /**
      * 被代理Processor的构造函数
      */
     val constructor = clazz.primaryConstructor ?:
         clazz.constructors.find { it.findAnnotation<UseThis>() != null } ?:
         clazz.constructors.find { it.parameters.isEmpty() } ?: ::createInstance
 
-    private fun createInstance(){
-        try {
-            clazz.createInstance()
-        }catch (e: IllegalArgumentException){
-            throw ProcessorNotHaveConstructorException("${clazz.fullName} 无法通过createInstance()函数构造实例")
-        }
-    }
-
-    val lifecycle = clazz.findAnnotation<Lifecycle>()?.cycle ?: Scope
+    val lifecycleAnnotation = clazz.findAnnotation<Lifecycle>()
 
     /**
      * 单例,如果某个函数使用单例模式,那么会使用该属性
@@ -75,55 +62,17 @@ class Processor(val clazz: KClass<*>) {
     /**
      * 成员绑定映射表
      */
-    private val memberBindMap by lazy { mutableMapOf<Long, Any>() }
+    private val memberBindMap by lazy { mutableMapOf<String, Any>() }
 
     /**
      * 群绑定映射表
      */
-    private val groupBindMap by lazy { mutableMapOf<Long, Any>() }
+    private val groupBindMap by lazy { mutableMapOf<String, Any>() }
 
     /**
      * 群内成员绑定映射表
      */
-    private val inGroupMemberBindMap by lazy { mutableMapOf<Long, MutableMap<Long, Any>>() }
-
-    /**
-     * 获取执行函数的执行实例,根据不同的生命周期返回不同的对象,该api未来可能发生变动可能会被删除或者修改为函数
-     */
-    fun executor(event: MessageEvent): Any {
-        return when(lifecycle) {
-            Sing -> single
-
-            BindMember -> memberBindMap
-                .getOrPut(event.sender.id){ getInstance() }
-
-            GroupSing -> when (event) {
-                is GroupMessageEvent,
-                is GroupTempMessageEvent,
-                is GroupMessageSyncEvent,
-                is GroupTempMessageSyncEvent-> groupBindMap
-                    .getOrPut(event.subject.id){ getInstance() }
-
-                is FriendMessageEvent,
-                is MessageSyncEvent,
-                is OtherClientMessageEvent,
-                is StrangerMessageEvent -> memberBindMap
-                    .getOrPut(event.sender.id){ getInstance() }
-
-                else -> memberBindMap
-                    .getOrPut(event.sender.id){ getInstance() }
-            }
-
-            GroupBindMember -> if (event is GroupAwareMessageEvent) {
-                inGroupMemberBindMap
-                    .getOrPut(event.subject.id){ mutableMapOf() }
-                    .getOrPut(event.sender.id) { getInstance() }
-            } else throw ProcessorBindException("${clazz.fullName}的生命周期绑定异常,绑定为GroupBindMember," +
-                    "但传入的事件为UserMessage类型")
-
-            Scope -> getInstance()
-        } ?: throw ProcessorConstructInstanceFailedException("构造${clazz.fullName}的实例失败")
-    }
+    private val inGroupMemberBindMap by lazy { mutableMapOf<String, Any>() }
 
     init {
         // 获取所有标记为可触发的函数
@@ -132,27 +81,6 @@ class Processor(val clazz: KClass<*>) {
         }
         // 代理这些函数
         triggerFun = funcList.map { ProcessorFun(it, this) }
-
-        // 构建映射表
-        for (func in triggerFun) {
-            for (item in func.trigger.triggers){
-                for (prefix in func.prefixs){
-
-                    var list: MutableMap<String, MutableList<ProcessorFun>>? = triggerMap[prefix]
-                    if (list == null) {
-                        list = mutableMapOf()
-                        triggerMap[prefix] = list
-                    }
-
-                    var funList: MutableList<ProcessorFun>? = list[item]
-                    if (funList == null) {
-                        funList = mutableListOf()
-                        list[item] = funList
-                    }
-                    funList.add(func)
-                }
-            }
-        }
     }
 
     /**
@@ -162,42 +90,80 @@ class Processor(val clazz: KClass<*>) {
      * @param event 事件
      * @return 执行结果
      */
-    fun run(func: ProcessorFun, event: Event): Any? {
-        var runFlag = false
+    fun run(func: ProcessorFun, key: String, event: Event, funcChain: List<ProcessorFun>? = null): Any? {
         var result: Any? = null
         // 判断事件是否符合条件
-        if (event is MessageEvent){
-            when(event){
-                is GroupMessageEvent -> {
-                    if (func.respondEvent.contains(RespondEventModel.GroupMessageEvent)){
-                        runFlag = true
+        if (func.respondEvent.any { it.clazz == event::class }){
+            val params = func.function.parameters
+            val paramMap = mutableMapOf<KParameter, Any>()
+            // 映射参数,目前支持获取event,未来会支持更多
+            for (param in params){
+                if (param.kind == KParameter.Kind.INSTANCE){
+                    paramMap[param] = executor(event, lifecycleAnnotation?.cycle ?: func.lifecycle)
+                    continue
+                }
+                if (param.type.isSubtypeOf(ProcessorFunI::class.createType())){
+                    paramMap[param] = (funcChain?.get(funcChain.indexOf(func).minus(1)) ?: func).let {
+                        ProcessorFunProxy(it, funcChain)
                     }
                 }
-                is FriendMessageEvent -> {
-                    if (func.respondEvent.contains(RespondEventModel.FriendMessageEvent)){
-                        runFlag = true
-                    }
+                if (param.name == "key"){
+                    paramMap[param] = key
                 }
-                else -> runFlag = false
+                if (event::class.createType().isSubtypeOf(param.type)){
+                    paramMap[param] = event
+                }
             }
-            // 仅符合条件时才会运行
-            if (runFlag){
-                val params = func.function.parameters
-                val paramMap = mutableMapOf<KParameter, Any>()
-                // 映射参数,目前支持获取event,未来会支持更多
-                for (param in params){
-                    if (param.kind == KParameter.Kind.INSTANCE){
-                        paramMap[param] = executor(event)
-                        continue
-                    }
-                    if (event::class.createType().isSubtypeOf(param.type)){
-                        paramMap[param] = event
-                    }
-                }
-                result = func.function.callBy(paramMap)
-            }
+            result = func.function.callBy(paramMap)
         }
         return result
+    }
+
+    /**
+     * 获取执行函数的执行实例,根据不同的生命周期返回不同的对象,该api未来可能发生变动
+     */
+    fun executor(event: Event, lifecycle: LifecycleModel): Any {
+
+        if (lifecycle == Scope) return getInstance()
+        if (lifecycle == single) return getInstance()
+
+        val getInstanceByLifecycle = when (lifecycle) {
+            BindMember -> { e: MessageEvent -> {
+                memberBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
+            }
+            }
+            GroupSing -> { e: MessageEvent -> {
+                when (e) {
+                    is UserMessageEvent -> memberBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
+                    is OtherClient -> {
+                        memberBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
+                    }
+                    else -> groupBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
+                }
+            }
+            }
+            else -> { e: MessageEvent -> {
+                inGroupMemberBindMap.getOrPut(e.subject.id.toString() + e.sender.id.toString()){ getInstance() }
+            }
+            }
+        }
+
+        return when(event){
+            is BotPassiveEvent -> {
+                when(event){
+                    is MessageEvent -> {
+                        getInstanceByLifecycle(event)
+                    }
+                    else ->
+                        throw ProcessorBindException("${clazz.fullName}的生命周期绑定异常,绑定为${lifecycle}," +
+                                "但传入的事件为${event::class.fullName}类型")
+                }
+            }
+            else ->
+                throw ProcessorBindException("${clazz.fullName}的生命周期绑定异常,绑定为${lifecycle}," +
+                        "但传入的事件为${event::class.fullName}类型")
+
+        }
     }
 
     /**
@@ -207,17 +173,48 @@ class Processor(val clazz: KClass<*>) {
         return constructor.call()
     }
 
+    private fun createInstance(){
+        try {
+            clazz.createInstance()
+        }catch (e: IllegalArgumentException){
+            throw ProcessorNotHaveConstructorException("${clazz.fullName} 无法通过createInstance()函数构造实例")
+        }
+    }
+}
+
+interface ProcessorFunI{
+    val function: KFunction<*>
+    val processor: Processor
+    val prev: MutableMap<String, ProcessorFun>
+    val funFullName:String
+    val trigger: Trigger
+    var prefixs: List<Prefix>
+    var respondEvent: List<RespondEventModel>
+    val authentication: Authentication
+    val lifecycle: LifecycleModel
+    val next: MutableMap<String, ProcessorFun>
+
+    /**
+     * 执行该函数
+     * @param key 触发词,该参数未来可能被删除
+     * @param event 事件
+     */
+    suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>? = null)
 }
 
 /**
  * 可触发函数代理类
  */
-class ProcessorFun(val function: KFunction<*>, val processor: Processor) {
-    val trigger: Trigger = function.findAnnotation<Trigger>()!!
-    var prefixs: List<Prefix>
-    var respondEvent: List<RespondEventModel> =
-        function.findAnnotation<RespondEvent>()?.model?.toList() ?: Processor.DefaultRespondEvent
-    var authentication = function.findAnnotation<Authentication>() ?: Authentication()
+class ProcessorFun(override val function: KFunction<*>, override val processor: Processor): ProcessorFunI {
+    override val prev: MutableMap<String, ProcessorFun> = mutableMapOf()
+    override val funFullName = "${processor.clazz.simpleName}.${function.name}"
+    override val trigger: Trigger = function.findAnnotation<Trigger>()!!
+    override var prefixs: List<Prefix>
+    override var respondEvent: List<RespondEventModel> =
+         function.findAnnotation<RespondEvent>()?.model?.toList() ?: Processor.DefaultRespondEvent
+    override val authentication = function.findAnnotation<Authentication>() ?: Authentication()
+    override val lifecycle = function.findAnnotation<Lifecycle>()?.cycle ?: Scope
+    override val next: MutableMap<String, ProcessorFun> = mutableMapOf()
 
     init {
         val annotation = function.findAnnotations<tea.ulong.entity.event.processor.annotation.Prefix>()
@@ -237,18 +234,23 @@ class ProcessorFun(val function: KFunction<*>, val processor: Processor) {
      * @param key 触发词,该参数未来可能被删除
      * @param event 事件
      */
-    suspend fun run(key:String, event: Event) {
+    override suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>?) {
         if (event is MessageEvent){
             val user = event.sender.User
             //权限检查
             if (authentication.check(user.authority)){
-                val result = processor.run(this, event)
+                val result = processor.run(this, key, event, funcChain)
                 if (result is String){
                     event.subject.sendMessage(event.message.quote() + result)
                 }
             }
-
         }
+    }
+}
+
+class ProcessorFunProxy(val processorFun: ProcessorFun, val funcChain: List<ProcessorFun>?): ProcessorFunI by processorFun {
+    override suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>?) {
+        processorFun.run(key, event, this.funcChain)
     }
 }
 

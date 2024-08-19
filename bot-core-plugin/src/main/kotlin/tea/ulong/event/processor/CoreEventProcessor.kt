@@ -10,9 +10,9 @@ import java.lang.management.ManagementFactory
 class CoreEventProcessor {
 
     @Trigger("rs", "运行状态", "状态", "status", "srs")
-    @Authentication(Authority.GlobalAdmin)
+    @Authentication(Authority.User)
+    @Help("获取服务器运行状态.")
     fun getRunningStatus(): String{
-
         val systemInfo = SystemInfo()
         // 获取操作系统的扩展MXBean
         val osBean = ManagementFactory.getOperatingSystemMXBean()

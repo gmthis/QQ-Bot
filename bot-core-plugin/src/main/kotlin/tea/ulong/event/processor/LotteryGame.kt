@@ -22,7 +22,7 @@ class LotteryGame {
         private val RandomContainers = listOf(
             "大吉", "吉", "吉", "小吉", "小吉", "小吉",
             "平", "平", "平",
-            "略凶","略凶","略凶", "凶", "凶", "大凶"
+            "小凶","小凶","小凶", "凶", "凶", "大凶"
         )
 
         @Template("大吉")
@@ -53,11 +53,11 @@ class LotteryGame {
         @Template("平")
         const val PING_TEMPLATE3 = "时间: {{date}}\n结果: {{rp}}\n平安无虞, 稳步向前, 不慌不忙."
 
-        @Template("略凶")
+        @Template("小凶")
         const val LVEXIONG_TEMPLATE1 = "时间: {{date}}\n结果: {{rp}}\n小心陷阱, 注意风险, 谨慎行事."
-        @Template("略凶")
+        @Template("小凶")
         const val LVEXIONG_TEMPLATE2 = "时间: {{date}}\n结果: {{rp}}\n遇到阻碍, 风险增加, 保持警觉."
-        @Template("略凶")
+        @Template("小凶")
         const val LVEXIONG_TEMPLATE3 = "时间: {{date}}\n结果: {{rp}}\n运势低迷, 障碍重重, 防范为主."
 
         @Template("凶")
@@ -78,8 +78,8 @@ class LotteryGame {
         const val OUHUANG_TEMPLATE = "时间: {{date}}\n结果: {{rp}}\n0.0001‰(千万分之一)的概率也不过如此,下次还抽."
         @Template("大胸")
         const val JURU_TEMPLATE = "时间: {{date}}\n结果: {{rp}}\n巨乳拯救世界!"
-        @Template("平胸")
-        const val PINGXION_TEMPLATE = "时间: {{date}}\n结果: {{rp}}\n飞机来了,AA在哪?"
+        @Template("小胸")
+        const val XIAOXION_TEMPLATE = "时间: {{date}}\n结果: {{rp}}\n飞机来了,AA在哪?"
         @Template("小吉吉")
         const val XIAOJIJI_TEMPLATE = "时间: {{date}}\n结果: {{rp}}\n不要气馁."
         @Template("大吉吉")
@@ -104,6 +104,16 @@ class LotteryGame {
 
     @Trigger("jrrp", "今日人品")
     @Authentication(Authority.User)
+    @Help("随机产生一个幸运状态,每日固定.\n" +
+            "共分6级,如下:\n" +
+            "好运: 小吉,吉,大吉\n" +
+            "平运: 平\n" +
+            "厄运: 小凶,凶,大凶\n\n" +
+            "概率公示如下:\n" +
+            "大吉,大凶 ≈ 6.67%\n" +
+            "吉,凶: ≈ 13.33%\n" +
+            "小吉,平,小胸: ≈ 20%\n\n" +
+            "另有0.55001%的概率抽中隐藏款,隐藏款共12款.")
     fun luck(
         messageEvent: MessageEvent
     ): String {
@@ -159,7 +169,7 @@ class LotteryGame {
             // 0.05%
             in 1..5000 -> "大胸"
             // 0.05%
-            in 5001..10000 -> "平胸"
+            in 5001..10000 -> "小胸"
             // 0.05%
             in 10001..15000 -> "小吉吉"
             // 0.05%
