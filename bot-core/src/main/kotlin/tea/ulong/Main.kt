@@ -3,18 +3,15 @@ package tea.ulong
 import kotlinx.coroutines.runBlocking
 import net.mamoe.mirai.Bot
 import net.mamoe.mirai.event.events.MessageEvent
-import net.mamoe.mirai.message.data.content
-import tea.ulong.entity.event.UniversalLevel
+import net.mamoe.mirai.message.data.*
+import tea.ulong.entity.MessageEntity
 import tea.ulong.entity.event.processor.Prefix
 import tea.ulong.entity.event.processor.ProcessorFun
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.loader.entity.ConfigLoader
 import tea.ulong.loader.event.processor.InternalProcessorLoader
 import top.mrxiaom.overflow.BotBuilder
-import java.util.LinkedList
-import java.util.Queue
-import java.util.Stack
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.*
 
 lateinit var bot: Bot
 
@@ -108,30 +105,56 @@ fun main() = runBlocking {
     }
 
     bot.eventChannel.subscribeAlways<MessageEvent> { event ->
-        val key = if (event.message.content.contains("@${bot.id}")) {
-            val cache = event.message.content.replace("@${bot.id}", "").trim()
-            "@${bot.id} ${cache.split(" ", "　")[0]}"
-        }else {
-            event.message.content.split(" ", "　")[0]
+        val messageEntity = MessageEntity()
+        for (singleMessage in event.message) {
+            when (singleMessage) {
+                is PlainText -> {
+                    messageEntity.messageChain.add(singleMessage)
+                    messageEntity.plainTextAndImageMessageChain.add(singleMessage)
+                }
+                is Image -> {
+                    messageEntity.messageChain.add(singleMessage)
+                    messageEntity.plainTextAndImageMessageChain.add(singleMessage)
+                }
+                is At -> {
+                    messageEntity.isAt = true
+                    messageEntity.atMessage = singleMessage
+                }
+                is AtAll -> {
+                    messageEntity.isAtAll = true
+                    messageEntity.atAllMessage = singleMessage
+                }
+                is MessageSource -> {
+                    messageEntity.isHaveMessageSource = true
+                    messageEntity.messageSource = singleMessage
+                }
+                is QuoteReply -> {
+                    messageEntity.isQuteReply = true
+                    messageEntity.quteReply = singleMessage
+                }
+                else -> {
+                    messageEntity.messageChain.add(singleMessage)
+                }
+            }
         }
+        val pKey = processorFunMap.keys.find { it.check(messageEntity) } ?: return@subscribeAlways
 
-        val prefixKey = processorFunMap.keys.find { it.check(key) } ?: return@subscribeAlways
-        val funcMap = processorFunMap[prefixKey] ?: return@subscribeAlways
-
-        val trigger = prefixKey.getTrigger(key) ?: return@subscribeAlways
-        val funcTarget = funcMap[trigger] ?: return@subscribeAlways
+        val splitCache = messageEntity.plainTextAndImageMessageContent.split(" ", "　")
+        messageEntity.triggerList.add(pKey.getTrigger(splitCache[0]))
+        messageEntity.paramList.addAll(splitCache.subList(1, splitCache.size))
+        val funcTarget = processorFunMap[pKey]!![messageEntity.triggerList[0]] ?: return@subscribeAlways
 
         if (funcTarget[0].next.isEmpty()){
-            funcTarget[0].run(key, event)
+            funcTarget[0].run(messageEntity, event)
         }else{
-            val triggerOrContent = event.message.content.removePrefix(key).trim().split(" ", "　")
             var runFun = funcTarget[0]
-            var triggerKey = key
             val funcChain = mutableListOf(runFun)
+            val triggerOrContent = mutableListOf<String>().also { it.addAll(messageEntity.paramList) }
             for (item in triggerOrContent){
                 val next = runFun.next[item]
                 if (next != null){
-                    triggerKey += "$triggerKey $item"
+                    messageEntity.paramList.add(item)
+                    messageEntity.paramList.removeLast()
                     runFun = next
                     funcChain.add(next)
                     if (runFun.next.isEmpty()){
@@ -141,7 +164,7 @@ fun main() = runBlocking {
                     break
                 }
             }
-            runFun.run(triggerKey, event, funcChain)
+            runFun.run(messageEntity, event, funcChain)
         }
     }
 

@@ -1,7 +1,5 @@
 package tea.ulong.event.processor
 
-import kotlinx.coroutines.runBlocking
-import net.mamoe.mirai.event.events.MessageEvent
 import tea.ulong.entity.event.processor.ProcessorFunI
 import tea.ulong.entity.event.processor.annotation.Authentication
 import tea.ulong.entity.event.processor.annotation.Authority
@@ -12,7 +10,7 @@ class TriggerHelp {
 
     @Trigger("help", "帮助", "bz", front = "*")
     @Authentication(Authority.User)
-    fun help(event: MessageEvent, prev: ProcessorFunI): String {
+    fun help(prev: ProcessorFunI): String {
         val help = prev.function.findAnnotation<Help>() ?: return "调用对象不支持help功能."
         return help.message
     }

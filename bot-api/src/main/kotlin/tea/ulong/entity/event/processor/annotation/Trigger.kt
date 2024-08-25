@@ -34,7 +34,7 @@ annotation class Trigger(
  * 
  * Prefix("#@bot.id@#", prefix = "@")
  * 
- * 该注解会被"@{机器人qq号}"触发
+ * 该注解会被"@{机器人qq号}"的纯文本内容前缀触发
  * @param symbol 前缀内容
  * @param prefix 虽然很奇怪,但是这是前缀的前缀,主要用于动态引用的实现
  * @param postfix 这是前缀的后缀
@@ -46,6 +46,13 @@ annotation class Prefix(
     val prefix: String,
     val postfix: String
 )
+
+/**
+ * 特殊前缀,用来标记特殊的触发方式,比如说@事件,甚至这个事件可以不在前缀出现.
+ */
+enum class SpecialPrefix(val symbol: String){
+    AtBot("29phand;fn2987h5baklba09801h")
+}
 
 /**
  * 标记当前Processor fun的所需要的权限等级,暂未实现.
@@ -140,4 +147,17 @@ annotation class RespondEvent(
  */
 enum class RespondEventModel(val clazz: KClass<out Event>){
     FriendMessage(FriendMessageEvent::class), GroupMessage(GroupMessageEvent::class)
+}
+
+@Target(AnnotationTarget.VALUE_PARAMETER)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Param(
+    val name: String = SpecialParam.NON,
+    val index: Int = -1
+)
+
+class SpecialParam{
+    companion object{
+        const val NON = "-2n134yv59-2,-1.cjoluwhd"
+    }
 }

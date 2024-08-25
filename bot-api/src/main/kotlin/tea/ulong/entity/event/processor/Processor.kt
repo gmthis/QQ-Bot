@@ -1,9 +1,11 @@
 package tea.ulong.entity.event.processor
 
+import net.mamoe.mirai.Bot
 import net.mamoe.mirai.contact.OtherClient
 import net.mamoe.mirai.event.Event
 import net.mamoe.mirai.event.events.*
 import net.mamoe.mirai.message.data.MessageSource.Key.quote
+import tea.ulong.entity.MessageEntity
 import tea.ulong.entity.event.processor.annotation.*
 import tea.ulong.entity.event.processor.annotation.LifecycleModel.*
 import tea.ulong.entity.exception.ProcessorBindException
@@ -29,7 +31,7 @@ class Processor(val clazz: KClass<*>) {
         var DefaultPrefix = listOf(
             Prefix.fetch("."),
             Prefix.fetch("。"),
-            Prefix.fetch("#@bot.id@#", prefix = "@")
+            Prefix.fetch(SpecialPrefix.AtBot.symbol)
         )
 
         /**
@@ -90,31 +92,42 @@ class Processor(val clazz: KClass<*>) {
      * @param event 事件
      * @return 执行结果
      */
-    fun run(func: ProcessorFun, key: String, event: Event, funcChain: List<ProcessorFun>? = null): Any? {
+    fun run(
+        func: ProcessorFun,
+        messageEntity: MessageEntity,
+        event: Event,
+        funcChain: List<ProcessorFun>? = null,
+        paramMap: Map<String, Any>
+    ): Any? {
         var result: Any? = null
         // 判断事件是否符合条件
         if (func.respondEvent.any { it.clazz == event::class }){
-            val params = func.function.parameters
-            val paramMap = mutableMapOf<KParameter, Any>()
+            val parameters = func.function.parameters
+            val params = mutableMapOf<KParameter, Any?>()
             // 映射参数,目前支持获取event,未来会支持更多
-            for (param in params){
+            for (param in parameters){
                 if (param.kind == KParameter.Kind.INSTANCE){
-                    paramMap[param] = executor(event, lifecycleAnnotation?.cycle ?: func.lifecycle)
+                    params[param] = executor(event, lifecycleAnnotation?.cycle ?: func.lifecycle)
                     continue
                 }
                 if (param.type.isSubtypeOf(ProcessorFunI::class.createType())){
-                    paramMap[param] = (funcChain?.get(funcChain.indexOf(func).minus(1)) ?: func).let {
-                        ProcessorFunProxy(it, funcChain)
-                    }
+                    params[param] =
+                        ProcessorFunProxy((funcChain?.get(funcChain.indexOf(func).minus(1)) ?: func), funcChain)
                 }
                 if (param.name == "key"){
-                    paramMap[param] = key
+                    params[param] = messageEntity.triggerList.joinToString(" ")
                 }
                 if (event::class.createType().isSubtypeOf(param.type)){
-                    paramMap[param] = event
+                    params[param] = event
+                }
+                val annotation = param.findAnnotation<Param>() ?: continue
+                if (annotation.name != SpecialParam.NON){
+                    params[param] = paramMap[annotation.name] ?: paramMap[annotation.index.toString()]
+                }else if (annotation.index != -1){
+                    params[param] = paramMap[annotation.index.toString()]
                 }
             }
-            result = func.function.callBy(paramMap)
+            result = func.function.callBy(params)
         }
         return result
     }
@@ -128,11 +141,10 @@ class Processor(val clazz: KClass<*>) {
         if (lifecycle == single) return getInstance()
 
         val getInstanceByLifecycle = when (lifecycle) {
-            BindMember -> { e: MessageEvent -> {
+            BindMember -> { e: MessageEvent ->
                 memberBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
             }
-            }
-            GroupSing -> { e: MessageEvent -> {
+            GroupSing -> { e: MessageEvent ->
                 when (e) {
                     is UserMessageEvent -> memberBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
                     is OtherClient -> {
@@ -141,10 +153,8 @@ class Processor(val clazz: KClass<*>) {
                     else -> groupBindMap.getOrPut(e.subject.id.toString()){ getInstance() }
                 }
             }
-            }
-            else -> { e: MessageEvent -> {
+            else -> { e: MessageEvent ->
                 inGroupMemberBindMap.getOrPut(e.subject.id.toString() + e.sender.id.toString()){ getInstance() }
-            }
             }
         }
 
@@ -199,7 +209,7 @@ interface ProcessorFunI{
      * @param key 触发词,该参数未来可能被删除
      * @param event 事件
      */
-    suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>? = null)
+    suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>? = null)
 }
 
 /**
@@ -234,12 +244,33 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
      * @param key 触发词,该参数未来可能被删除
      * @param event 事件
      */
-    override suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>?) {
+    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>?) {
         if (event is MessageEvent){
             val user = event.sender.User
             //权限检查
             if (authentication.check(user.authority)){
-                val result = processor.run(this, key, event, funcChain)
+                val paramMap = mutableMapOf<String, Any>()
+                var index = 0
+                var position = 1
+                while (index < messageEntity.paramList.size) {
+                    val token = messageEntity.paramList[index]
+                    if (token.startsWith("-") && token.length > 1) {
+                        val key = token.substring(1)
+                        if (index + 1 < messageEntity.paramList.size && !messageEntity.paramList[index + 1].startsWith("-")) {
+                            val value = messageEntity.paramList[index + 1]
+                            paramMap[key] = value
+                            paramMap[position.toString()] = value
+                            index += 2
+                        } else {
+                            index += 1
+                        }
+                    } else {
+                        paramMap[position.toString()] = token
+                        index += 1
+                    }
+                    position += 1
+                }
+                val result = processor.run(this, messageEntity, event, funcChain, paramMap)
                 if (result is String){
                     event.subject.sendMessage(event.message.quote() + result)
                 }
@@ -249,8 +280,8 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
 }
 
 class ProcessorFunProxy(val processorFun: ProcessorFun, val funcChain: List<ProcessorFun>?): ProcessorFunI by processorFun {
-    override suspend fun run(key:String, event: Event, funcChain: List<ProcessorFun>?) {
-        processorFun.run(key, event, this.funcChain)
+    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>?) {
+        processorFun.run(messageEntity, event, this.funcChain)
     }
 }
 
@@ -286,6 +317,14 @@ class Prefix private constructor(val symbol: String, val prefix: String = "", va
     var isVal = true
     var dynamicResultCache: String? = null
 
+    fun check(statement: MessageEntity): Boolean{
+        return if (symbol == SpecialPrefix.AtBot.symbol && statement.isAt){
+            statement.atMessage!!.target == (DynamicContainers["bot"] as Bot).id
+        } else {
+            check(statement.plainTextAndImageMessageContent)
+        }
+    }
+
     /**
      * 检查一个trigger的前缀是否符合条件
      */
@@ -298,9 +337,9 @@ class Prefix private constructor(val symbol: String, val prefix: String = "", va
     /**
      * 获取一个trigger的内容,去除其前缀
      */
-    fun getTrigger(statement: String): String? {
+    fun getTrigger(statement: String): String {
         return (if (isDynamicProperty)
-            statement.replace("$prefix${dynamicallyAcquired() ?: return null}$postfix", "")
+            statement.replace("$prefix${dynamicallyAcquired() ?: "null"}$postfix", "")
         else statement.replace("$prefix$symbol$postfix", "")).trim()
     }
 
