@@ -7,6 +7,7 @@ import tea.ulong.ext.getTemplate
 import java.time.Duration
 import java.time.LocalDateTime
 
+@Processor
 @Lifecycle(LifecycleModel.GroupSing)
 @TemplatePackName("赛博猫猫")
 class CyberCat{

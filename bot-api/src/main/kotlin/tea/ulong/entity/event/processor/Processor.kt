@@ -235,6 +235,9 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
             for (item in annotation){
                 list.add(Prefix.fetch(item.symbol, item.prefix, item.postfix))
             }
+            if (annotation.isEmpty()){
+                list.add(Prefix.fetch(""))
+            }
             prefixs = list
         }
     }

@@ -3,10 +3,12 @@ package tea.ulong.event.processor
 import oshi.SystemInfo
 import tea.ulong.entity.event.processor.annotation.Authentication
 import tea.ulong.entity.event.processor.annotation.Authority
+import tea.ulong.entity.event.processor.annotation.Processor
 import tea.ulong.entity.event.processor.annotation.Trigger
 import tea.ulong.ext.format
 import java.lang.management.ManagementFactory
 
+@Processor
 class CoreEventProcessor {
 
     @Trigger("rs", "运行状态", "状态", "status", "srs")

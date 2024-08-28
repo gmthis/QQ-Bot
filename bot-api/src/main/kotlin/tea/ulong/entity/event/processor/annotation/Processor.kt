@@ -8,3 +8,9 @@ package tea.ulong.entity.event.processor.annotation
  */
 @Target(AnnotationTarget.CONSTRUCTOR)
 annotation class UseThis()
+
+/**
+ * 标记类为Processor
+ */
+@Target(AnnotationTarget.CLASS)
+annotation class Processor()

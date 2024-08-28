@@ -14,6 +14,8 @@ class TriggerHelp {
         val help = prev.function.findAnnotation<Help>() ?: return "调用对象不支持help功能."
         return help.message
     }
+
+
 }
 
 annotation class Help(

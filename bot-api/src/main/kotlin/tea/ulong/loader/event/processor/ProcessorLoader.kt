@@ -1,17 +1,21 @@
 package tea.ulong.loader.event.processor
 
 import tea.ulong.entity.event.processor.Processor
+import tea.ulong.entity.event.processor.annotation.Processor as ProcessorAnnotation
 import java.io.File
+import java.net.URLClassLoader
 import java.net.URLDecoder
+import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.jar.JarFile
+import kotlin.reflect.full.hasAnnotation
 
 /**
  * 内置Processor加载器,仅用于加载内置Processor,无法加载外置Processor
  *
  * 由chatgpt-4o生成
  */
-object InternalProcessorLoader {
+object ProcessorLoader {
 
     private var _internalProcessor: List<Processor>? = null
 
@@ -21,14 +25,11 @@ object InternalProcessorLoader {
      * 内部使用缓存机制,无法立刻反应变化
      * @return processor代理对象列表
      */
-    fun getInternalProcessorList(): List<Processor> {
+    fun loadInternalProcessor(pack: String): List<Processor> {
         if (_internalProcessor != null) return _internalProcessor!!
 
-        val pack = "tea.ulong.event.processor"
         val packPath = pack.replace(".", "/")
-
         val classLoader = this.javaClass.classLoader
-
         val resource = classLoader.getResources(packPath).toList()
 
         _internalProcessor = resource.flatMap { url ->
@@ -63,4 +64,39 @@ object InternalProcessorLoader {
         return _internalProcessor!!
     }
 
+    fun loadExternalProcessor(path: String): List<Processor> {
+        val classesWithAnnotation = mutableListOf<Processor>()
+
+        // 查找所有 JAR 文件
+        val jarFiles = Files.walk(Paths.get(path))
+            .filter { Files.isRegularFile(it) && it.toString().endsWith(".jar") }
+            .toList()
+
+        // 加载 JAR 文件并创建类加载器
+        val classLoader = URLClassLoader.newInstance(
+            jarFiles.map { it.toUri().toURL() }.toTypedArray(),
+            Thread.currentThread().contextClassLoader
+        )
+
+        jarFiles.forEach { jarFile ->
+            JarFile(jarFile.toFile()).use { jar ->
+                jar.entries().asSequence()
+                    .filter { !it.isDirectory && it.name.endsWith(".class") }
+                    .map { it.name.replace("/", ".").removeSuffix(".class") }
+                    .forEach { className ->
+                        try {
+                            // 加载类并检查是否带有指定的注解
+                            val clazz = classLoader.loadClass(className).kotlin
+                            if (clazz.hasAnnotation<ProcessorAnnotation>()) {
+                                classesWithAnnotation.add(Processor(clazz))
+                            }
+                        } catch (e: ClassNotFoundException) {
+                            // 忽略无法加载的类
+                        }
+                    }
+            }
+        }
+
+        return classesWithAnnotation
+    }
 }

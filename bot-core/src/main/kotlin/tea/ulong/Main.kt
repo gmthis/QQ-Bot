@@ -9,7 +9,7 @@ import tea.ulong.entity.event.processor.Prefix
 import tea.ulong.entity.event.processor.ProcessorFun
 import tea.ulong.entity.utils.DynamicContainers
 import tea.ulong.loader.entity.ConfigLoader
-import tea.ulong.loader.event.processor.InternalProcessorLoader
+import tea.ulong.loader.event.processor.ProcessorLoader
 import top.mrxiaom.overflow.BotBuilder
 import java.util.*
 
@@ -25,9 +25,10 @@ fun main() = runBlocking {
 
     DynamicContainers["bot"] = bot
 
-    val processors = InternalProcessorLoader.getInternalProcessorList()
+    val processors = ProcessorLoader.loadInternalProcessor("tea.ulong.event.processor") + ProcessorLoader.loadExternalProcessor("plugin")
 
     val processorFunMap = mutableMapOf<Prefix, MutableMap<String, MutableList<ProcessorFun>>>()
+    val emptyPrefixProcessorFunMap = mutableMapOf<String, MutableList<ProcessorFun>>()
     val haveFrontProcessorFun = LinkedList<ProcessorFun>()
     for (processor in processors){
         for (func in processor.triggerFun){
@@ -35,6 +36,12 @@ fun main() = runBlocking {
             if (func.trigger.front.isEmpty()){
                 // 将函数链的头存入映射表
                 for (prefix in func.prefixs){
+                    if (prefix.symbol == ""){
+                        for (trigger in func.trigger.triggers){
+                            emptyPrefixProcessorFunMap.getOrPut(trigger){ mutableListOf() }.add(func)
+                        }
+                        continue
+                    }
                     val map = processorFunMap.getOrPut(prefix) { mutableMapOf() }
                     for (trigger in func.trigger.triggers){
                         map.getOrPut(trigger){ mutableListOf() }.add(func)
@@ -137,12 +144,12 @@ fun main() = runBlocking {
                 }
             }
         }
-        val pKey = processorFunMap.keys.find { it.check(messageEntity) } ?: return@subscribeAlways
+        val pKey = processorFunMap.keys.find { it.check(messageEntity) }
 
         val splitCache = messageEntity.plainTextAndImageMessageContent.split(" ", "　")
-        messageEntity.triggerList.add(pKey.getTrigger(splitCache[0]))
+        messageEntity.triggerList.add(pKey?.getTrigger(splitCache[0]) ?: splitCache[0])
         messageEntity.paramList.addAll(splitCache.subList(1, splitCache.size))
-        val funcTarget = processorFunMap[pKey]!![messageEntity.triggerList[0]] ?: return@subscribeAlways
+        val funcTarget = processorFunMap[pKey]?.get(messageEntity.triggerList[0]) ?: emptyPrefixProcessorFunMap[messageEntity.triggerList[0]] ?: return@subscribeAlways
 
         if (funcTarget[0].next.isEmpty()){
             funcTarget[0].run(messageEntity, event)
@@ -153,8 +160,8 @@ fun main() = runBlocking {
             for (item in triggerOrContent){
                 val next = runFun.next[item]
                 if (next != null){
-                    messageEntity.paramList.add(item)
-                    messageEntity.paramList.removeLast()
+                    messageEntity.triggerList.add(item)
+                    messageEntity.paramList.removeFirst()
                     runFun = next
                     funcChain.add(next)
                     if (runFun.next.isEmpty()){

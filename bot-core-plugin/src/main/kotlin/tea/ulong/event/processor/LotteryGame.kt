@@ -15,6 +15,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.random.Random
 
+@Processor
 @TemplatePackName("抽签游戏")
 class LotteryGame {
 

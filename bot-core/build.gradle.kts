@@ -14,7 +14,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
     api(project(":bot-api"))
-    implementation(project(":bot-core-plugin"))
 
     implementation(kotlin("reflect"))
+}
+
+tasks.jar{
+    manifest{
+        attributes["Main-Class"] = "tea.ulong.MainKt"
+    }
 }
