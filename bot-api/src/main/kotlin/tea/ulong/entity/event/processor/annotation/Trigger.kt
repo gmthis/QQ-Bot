@@ -152,7 +152,7 @@ enum class RespondEventModel(val clazz: KClass<out Event>){
 @Target(AnnotationTarget.VALUE_PARAMETER)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class Param(
-    val name: String = SpecialParam.NON,
+    val name: Array<String> = [SpecialParam.NON],
     val index: Int = -1
 )
 
@@ -161,3 +161,17 @@ class SpecialParam{
         const val NON = "-2n134yv59-2,-1.cjoluwhd"
     }
 }
+
+@Target(AnnotationTarget.VALUE_PARAMETER)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class PrevProcessorFun
+
+@Target(AnnotationTarget.VALUE_PARAMETER)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class GlobalParam(
+    val key: String = SpecialParam.NON
+)
+
+@Target(AnnotationTarget.VALUE_PARAMETER)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class TriggerParam()

@@ -22,6 +22,9 @@ val json = Json {
  */
 val emptyJsonObject = buildJsonObject {  }
 
-internal val innerDynamicContainers = mutableMapOf<String, Any>()
+internal val innerDynamicContainers = mutableMapOf<String, Any?>().also {
+    it["DynamicContainers"] = it
+    it["DynamicContainers".lowercase()] = it
+}
 val DynamicContainers
     get() = innerDynamicContainers

@@ -8,5 +8,5 @@ dependencies {
     compileOnly("com.github.oshi:oshi-core:6.6.2")
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
-    compileOnly(project(":bot-api"))
+    compileOnly(project(":bot-core-plugin-helper"))
 }

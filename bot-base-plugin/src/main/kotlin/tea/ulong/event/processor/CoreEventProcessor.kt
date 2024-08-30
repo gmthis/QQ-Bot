@@ -5,6 +5,7 @@ import tea.ulong.entity.event.processor.annotation.Authentication
 import tea.ulong.entity.event.processor.annotation.Authority
 import tea.ulong.entity.event.processor.annotation.Processor
 import tea.ulong.entity.event.processor.annotation.Trigger
+import tea.ulong.entity.event.processor.anntation.Help
 import tea.ulong.ext.format
 import java.lang.management.ManagementFactory
 

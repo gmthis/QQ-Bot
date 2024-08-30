@@ -42,6 +42,8 @@ class Processor(val clazz: KClass<*>) {
         )
     }
 
+    val symbol: Symbol? = clazz.findAnnotation()
+
     /**
      * 该类中的所有可触发函数的代理
      */
@@ -76,6 +78,8 @@ class Processor(val clazz: KClass<*>) {
      */
     private val inGroupMemberBindMap by lazy { mutableMapOf<String, Any>() }
 
+    internal var init: (() -> Unit)? = null
+
     init {
         // 获取所有标记为可触发的函数
         val funcList = clazz.functions.filter {
@@ -83,6 +87,29 @@ class Processor(val clazz: KClass<*>) {
         }
         // 代理这些函数
         triggerFun = funcList.map { ProcessorFun(it, this) }
+
+        clazz.companionObject?.let {
+            it.functions.find { func -> func.findAnnotation<Init>() != null || func.name == "init" }?.let { init ->
+                this.init = {
+                    val parameters = init.parameters
+                    val params = mutableMapOf<KParameter, Any?>()
+                    // 映射参数,目前支持获取event,未来会支持更多
+                    for (param in parameters){
+                        if (param.kind == KParameter.Kind.INSTANCE || param.kind == KParameter.Kind.EXTENSION_RECEIVER){
+                            params[param] = clazz.companionObjectInstance
+                            continue
+                        }
+
+                        val pocket = param.findAnnotation<GlobalParam>()?.let {
+                            DynamicContainers[it.key.lowercase()]
+                        } ?: DynamicContainers[param.name?.lowercase()]
+
+                        params[param] = pocket
+                    }
+                    init.callBy(params)
+                }
+            }
+        }
     }
 
     /**
@@ -96,8 +123,8 @@ class Processor(val clazz: KClass<*>) {
         func: ProcessorFun,
         messageEntity: MessageEntity,
         event: Event,
-        funcChain: List<ProcessorFun>? = null,
-        paramMap: Map<String, Any>
+        funcChain: List<ProcessorFunI>? = null,
+        paramMap: Map<String, Any?>
     ): Any? {
         var result: Any? = null
         // 判断事件是否符合条件
@@ -106,26 +133,41 @@ class Processor(val clazz: KClass<*>) {
             val params = mutableMapOf<KParameter, Any?>()
             // 映射参数,目前支持获取event,未来会支持更多
             for (param in parameters){
-                if (param.kind == KParameter.Kind.INSTANCE){
+                if (param.kind == KParameter.Kind.INSTANCE || param.kind == KParameter.Kind.EXTENSION_RECEIVER){
                     params[param] = executor(event, lifecycleAnnotation?.cycle ?: func.lifecycle)
                     continue
                 }
-                if (param.type.isSubtypeOf(ProcessorFunI::class.createType())){
-                    params[param] =
-                        ProcessorFunProxy((funcChain?.get(funcChain.indexOf(func).minus(1)) ?: func), funcChain)
+
+                if (param.name == "trigger" || param.name == "key" || param.findAnnotation<TriggerParam>() != null){
+                    if (param.type == String::class.createType())
+                        params[param] = messageEntity.triggerList.joinToString(" ")
+                    else
+                        params[param] = messageEntity.triggerList
+                    continue
                 }
-                if (param.name == "key"){
-                    params[param] = messageEntity.triggerList.joinToString(" ")
-                }
+
                 if (event::class.createType().isSubtypeOf(param.type)){
                     params[param] = event
+                    continue
                 }
-                val annotation = param.findAnnotation<Param>() ?: continue
-                if (annotation.name != SpecialParam.NON){
-                    params[param] = paramMap[annotation.name] ?: paramMap[annotation.index.toString()]
-                }else if (annotation.index != -1){
-                    params[param] = paramMap[annotation.index.toString()]
+
+                if (param.findAnnotation<PrevProcessorFun>() != null){
+                    params[param] =
+                        ProcessorFunProxy((funcChain?.get(funcChain.indexOf(func).minus(1)) ?: func), funcChain)
+                    continue
                 }
+
+                val pocket = param.findAnnotation<Param>()?.let {
+                    if (it.name.size == 1 && it.name[0] == SpecialParam.NON){
+                        paramMap[it.index.toString()]
+                    } else if (it.index != -1){
+                        it.name.firstNotNullOfOrNull { name -> paramMap[name] } ?: paramMap[it.index.toString()]
+                    } else null
+                } ?: paramMap[param.name] ?: param.findAnnotation<GlobalParam>()?.let {
+                    DynamicContainers[it.key.lowercase()]
+                } ?: DynamicContainers[param.name?.lowercase()]
+
+                params[param] = pocket
             }
             result = func.function.callBy(params)
         }
@@ -180,7 +222,17 @@ class Processor(val clazz: KClass<*>) {
      * 获取被代理类的实例,目前没有实现依赖注入.
      */
     fun getInstance(): Any {
-        return constructor.call()
+        val parameters = constructor.parameters
+        val params = mutableMapOf<KParameter, Any?>()
+        // 映射参数,目前支持获取event,未来会支持更多
+        for (param in parameters){
+            val pocket = param.findAnnotation<GlobalParam>()?.let {
+                DynamicContainers[it.key.lowercase()]
+            } ?: DynamicContainers[param.name?.lowercase()]
+
+            params[param] = pocket
+        }
+        return constructor.callBy(params)
     }
 
     private fun createInstance(){
@@ -193,6 +245,7 @@ class Processor(val clazz: KClass<*>) {
 }
 
 interface ProcessorFunI{
+    val symbol: Symbol?
     val function: KFunction<*>
     val processor: Processor
     val prev: MutableMap<String, ProcessorFun>
@@ -206,18 +259,18 @@ interface ProcessorFunI{
 
     /**
      * 执行该函数
-     * @param key 触发词,该参数未来可能被删除
      * @param event 事件
      */
-    suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>? = null)
+    suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFunI>? = null)
 }
 
 /**
  * 可触发函数代理类
  */
 class ProcessorFun(override val function: KFunction<*>, override val processor: Processor): ProcessorFunI {
+    override val symbol: Symbol? = function.findAnnotation()
     override val prev: MutableMap<String, ProcessorFun> = mutableMapOf()
-    override val funFullName = "${processor.clazz.simpleName}.${function.name}"
+    override val funFullName = "${processor.symbol?.value ?: processor.clazz.simpleName}.${symbol?.value ?: function.name}"
     override val trigger: Trigger = function.findAnnotation<Trigger>()!!
     override var prefixs: List<Prefix>
     override var respondEvent: List<RespondEventModel> =
@@ -228,9 +281,9 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
 
     init {
         val annotation = function.findAnnotations<tea.ulong.entity.event.processor.annotation.Prefix>()
-        if (annotation.isEmpty()){
+        if (trigger.isUsedUniversalPrefix){
             prefixs = Processor.DefaultPrefix
-        }else {
+        }else{
             val list = mutableListOf<Prefix>()
             for (item in annotation){
                 list.add(Prefix.fetch(item.symbol, item.prefix, item.postfix))
@@ -244,15 +297,14 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
 
     /**
      * 执行该函数
-     * @param key 触发词,该参数未来可能被删除
      * @param event 事件
      */
-    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>?) {
+    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFunI>?) {
         if (event is MessageEvent){
             val user = event.sender.User
             //权限检查
             if (authentication.check(user.authority)){
-                val paramMap = mutableMapOf<String, Any>()
+                val paramMap = mutableMapOf<String, Any?>()
                 var index = 0
                 var position = 1
                 while (index < messageEntity.paramList.size) {
@@ -273,6 +325,9 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
                     }
                     position += 1
                 }
+                paramMap["funcChain"] = funcChain
+                paramMap["event"] = event
+                paramMap["messageEntity"] = messageEntity
                 val result = processor.run(this, messageEntity, event, funcChain, paramMap)
                 if (result is String){
                     event.subject.sendMessage(event.message.quote() + result)
@@ -282,8 +337,8 @@ class ProcessorFun(override val function: KFunction<*>, override val processor: 
     }
 }
 
-class ProcessorFunProxy(val processorFun: ProcessorFun, val funcChain: List<ProcessorFun>?): ProcessorFunI by processorFun {
-    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFun>?) {
+class ProcessorFunProxy(val processorFun: ProcessorFunI, val funcChain: List<ProcessorFunI>?): ProcessorFunI by processorFun {
+    override suspend fun run(messageEntity: MessageEntity, event: Event, funcChain: List<ProcessorFunI>?) {
         processorFun.run(messageEntity, event, this.funcChain)
     }
 }
@@ -355,7 +410,7 @@ class Prefix private constructor(val symbol: String, val prefix: String = "", va
         var symbolSplit = symbolContent.split(".")
 
         val dynamicName = symbolSplit[0]
-        val dynamicTarget = DynamicContainers[dynamicName] ?: return null
+        val dynamicTarget = DynamicContainers[dynamicName.lowercase()] ?: return null
 
         var target: Any = dynamicTarget
         symbolSplit = symbolSplit.subList(1, symbolSplit.size)

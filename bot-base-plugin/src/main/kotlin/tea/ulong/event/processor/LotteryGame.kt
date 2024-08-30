@@ -5,6 +5,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import net.mamoe.mirai.event.events.MessageEvent
 import tea.ulong.entity.event.processor.annotation.*
+import tea.ulong.entity.event.processor.anntation.Help
 import tea.ulong.entity.utils.json
 import tea.ulong.ext.fillTemplate
 import tea.ulong.ext.getTemplate

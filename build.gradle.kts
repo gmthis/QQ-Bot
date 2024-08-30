@@ -7,6 +7,10 @@ plugins {
 val packName = "release"
 val packVersion = "0.0.1"
 
+repositories {
+    mavenCentral()
+}
+
 tasks.register("buildProject") {
     group = "build"
     description = "Copies shadow JARs from subprojects to the appropriate directory."
@@ -23,15 +27,21 @@ tasks.register("buildProject") {
         pluginDir.mkdirs()
 
         subprojects.forEach { subproject ->
-            val destinationDir = when (subproject.name) {
-                "bot-api" -> null
-                "bot-core" -> appDir
-                else -> pluginDir
-            }
-
-            destinationDir?.let {
-                subproject.layout.buildDirectory.dir("libs").get().asFile.listFiles()?.forEach { file ->
-                    file.copyTo(it.resolve(file.name), true)
+            when (subproject.name) {
+                "bot-api" -> {}
+                "bot-core" -> {
+                    subproject.layout.buildDirectory.dir("libs").get().asFile.listFiles()?.forEach { file ->
+                        file.copyTo(appDir.resolve(file.name), true)
+                    }
+                }
+                else -> {
+                    if (subprojects.find { it.name == "bot-core" }!!.configurations.implementation.get().dependencies.find { it.name == subproject.name } == null &&
+                        subprojects.find { it.name == "bot-core" }!!.configurations.api.get().dependencies.find { it.name == subproject.name } == null){
+                        subproject.layout.buildDirectory.dir("libs").get().asFile.listFiles()?.forEach { file ->
+                            file.copyTo(pluginDir.resolve(file.name), true)
+                            file.copyTo(File("plugin").resolve(file.name), true)
+                        }
+                    }
                 }
             }
         }
@@ -57,6 +67,12 @@ subprojects {
 
     application{
         mainClass.set("tea.ulong.MainKt")
+    }
+
+    dependencies{
+        if ("plugin" in (this@subprojects).name){
+            compileOnly(project(":bot-api"))
+        }
     }
 
     tasks{

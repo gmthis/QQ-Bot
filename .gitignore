@@ -49,3 +49,4 @@ bin/
 .config
 .template
 /.idea/
+/plugin/

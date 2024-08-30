@@ -4,4 +4,6 @@ plugins {
 rootProject.name = "QQ-Bot"
 include("bot-api")
 include("bot-core")
-include("bot-core-plugin")
+include("bot-base-plugin")
+include("bot-core-plugin-helper")
+include("bot-core-plugin-user")
